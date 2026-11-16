@@ -119,9 +119,6 @@ fn offline_mode() -> bool {
     std::env::var_os("GIGASTT_OFFLINE").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
-/// Hard ceiling on a single model-file download. The largest shipped INT8
-/// encoder (`ml_ctc_large`) is ~592 MB; 2 GiB leaves room for ANE packages
-/// without letting a redirected host fill the disk.
 #[cfg(feature = "net")]
 pub(crate) const MAX_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
@@ -175,11 +172,6 @@ pub(crate) async fn stream_to_partial_then_finalize_with_sink(
     label: &str,
     sink: &ProgressSink,
 ) -> Result<()> {
-    // Air-gapped guard: every network fetch in this crate funnels through this
-    // function, so one check here covers the model download, the prequantized
-    // bundle, ANE packages, and the speaker / punctuation / VAD models. Checked
-    // per call (not cached) so the `--offline` CLI flag, which sets the env var
-    // at startup, and an externally exported variable behave identically.
     if offline_mode() {
         anyhow::bail!(
             "offline mode (GIGASTT_OFFLINE=1): refusing to download {label}; \

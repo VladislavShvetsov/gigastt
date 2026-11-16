@@ -97,7 +97,7 @@ fn test_speaker_quality_and_latency_against_cpu_oracle() {
     let encoder = Arc::new(load_speaker_encoder(&model, SPEAKER_POOL_SIZE).unwrap());
     let load_seconds = started.elapsed().as_secs_f64();
     let oracle = CpuOracle::new(&model, reference_threads);
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gigastt/tests/fixtures");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golos");
     let mut clips = Vec::new();
     for name in ["golos_00.wav", "golos_01.wav", "golos_02.wav"] {
         let samples =
@@ -317,8 +317,7 @@ fn test_speaker_resource_probe() {
         _ => panic!("unknown resource backend"),
     };
     let load_seconds = started.elapsed().as_secs_f64();
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../gigastt/tests/fixtures/golos_00.wav");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golos/golos_00.wav");
     let samples = crate::inference::audio::decode_audio_file(fixture.to_str().unwrap()).unwrap();
     for _ in 0..9 {
         let embedding = encoder.embed(&samples[..48000]).unwrap();

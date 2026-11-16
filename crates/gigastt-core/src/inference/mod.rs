@@ -31,9 +31,6 @@ mod tokenizer;
 #[cfg(feature = "__internals")]
 pub mod tokenizer;
 
-#[cfg(all(feature = "coreml", feature = "cuda"))]
-compile_error!("Features `coreml` and `cuda` are mutually exclusive. Choose one.");
-
 // ---------------------------------------------------------------------------
 // Public re-exports (stable paths: `gigastt_core::inference::Engine`, etc.)
 // ---------------------------------------------------------------------------

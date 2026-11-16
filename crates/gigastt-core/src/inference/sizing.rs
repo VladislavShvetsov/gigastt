@@ -218,16 +218,7 @@ pub(crate) fn split_pool_items<T: Send>(
     (items, Some(batch_items))
 }
 
-/// Probe a freshly-built state; on failure, rebuild it once and re-probe.
-///
-/// `probe` is a runtime self-check, `rebuild` converts the failed state into
-/// a replacement (receiving the probe error so it can log the cause). A
-/// rebuilt state that still fails the probe is a hard error — there is no
-/// second fallback level.
-///
-/// Production call site is CoreML runtime-fallback; unit tests exercise the
-/// pure decision logic without a session.
-#[cfg_attr(not(any(test, feature = "coreml")), allow(dead_code))]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn probe_or_rebuild<S>(
     state: S,
     probe: impl Fn(&S) -> anyhow::Result<()>,

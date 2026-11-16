@@ -10,8 +10,8 @@ use crate::vad::VadConfig;
 fn test_rnnt_precision_uses_selected_backend_not_build_features() {
     let tmp = tempfile::tempdir().expect("tempdir");
     test_support::write_rnnt_layout(tmp.path()).expect("rnnt layout");
-    for (backend, expected_int8) in [("cpu", true), ("candle", false)] {
-        // Mock sessions exercise loader metadata, not actual Metal execution.
+    for (backend, expected_int8) in [("cpu", true), ("cuda", true)] {
+        // Mock sessions exercise loader metadata without GPU execution.
         let engine = Engine::load_with_factory(
             tmp.path(),
             Some(ModelVariant::Rnnt),
@@ -32,7 +32,6 @@ fn test_rnnt_precision_uses_selected_backend_not_build_features() {
 #[test]
 fn test_engine_config_getters_and_builders() {
     let (engine, _tmp) = test_support::rnnt_engine();
-    // This helper injects CPU sessions, even when Candle support is compiled.
     assert_eq!(engine.execution_provider(), "cpu");
     assert!(engine.is_int8());
     assert_eq!(engine.variant(), ModelVariant::Rnnt);

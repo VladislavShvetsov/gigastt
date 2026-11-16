@@ -1,7 +1,5 @@
 //! Unit tests for model download / variant / progress.
 
-#[cfg(feature = "ane")]
-use super::download::ane::*;
 #[cfg(feature = "net")]
 use super::download::fetch::*;
 use super::download::*;
@@ -30,7 +28,6 @@ pub(super) fn stage_partial(final_path: &Path, bytes: &[u8]) -> std::path::PathB
     partial
 }
 
-mod ane;
 mod download;
 mod progress;
 mod variant;

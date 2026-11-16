@@ -154,7 +154,7 @@ fn benchmark_live_window_workload() {
         );
     }
     engine.warmup().unwrap();
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gigastt/tests/fixtures");
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golos");
     let manifest: Vec<Value> =
         serde_json::from_slice(&std::fs::read(fixtures.join("manifest.json")).unwrap()).unwrap();
     let mut clips: Vec<_> = manifest
@@ -262,7 +262,7 @@ fn benchmark_endpoint_duration() {
     .unwrap()
     .with_itn(false);
     engine.warmup().unwrap();
-    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gigastt/tests/fixtures");
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golos");
     let manifest: Vec<Value> =
         serde_json::from_slice(&std::fs::read(fixtures.join("manifest.json")).unwrap()).unwrap();
     let mut clips: Vec<_> = manifest

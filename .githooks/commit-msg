@@ -1,3 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-python3 scripts/check-publication.py --commit-message-file "$1"

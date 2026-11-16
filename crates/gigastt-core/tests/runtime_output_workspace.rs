@@ -75,7 +75,7 @@ fn benchmark_installed_runtime_output_workspace() {
         std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join(".gigastt/models");
     let samples = decode_audio_file(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../gigastt/tests/fixtures/golos_00.wav"
+        "/tests/fixtures/golos/golos_00.wav"
     ))
     .unwrap();
     let (mel, frames) = FeatureExtractor::new().compute(&samples);

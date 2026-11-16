@@ -143,7 +143,7 @@ fn test_installed_runtime_workspace_equivalence() {
             .collect();
         for fixture in ["golos_00.wav", "golos_01.wav"] {
             let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../gigastt/tests/fixtures")
+                .join("tests/fixtures/golos")
                 .join(fixture);
             let path = path.to_str().unwrap();
             let mut reference = None;

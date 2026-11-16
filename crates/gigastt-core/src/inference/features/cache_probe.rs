@@ -93,8 +93,7 @@ fn benchmark_frontend_reuse_on_recorded_windows() {
         return;
     };
     let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    let fixtures =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../gigastt/tests/fixtures");
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golos");
     let mel = MelSpectrogram::new();
     let mut fresh_ns = 0;
     let mut cached_ns = 0;

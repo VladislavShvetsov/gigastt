@@ -72,13 +72,7 @@ pub(crate) const STREAM_CAP_STREAK_MAX: usize = 3;
 /// larger activation tensors thrash CPU caches — so both head families share
 /// this 30s ceiling.)
 pub(crate) const CHUNK_THRESHOLD_SAMPLES: usize = 16000 * 30;
-/// Long-form decode window on ort / CoreML-EP / CUDA (samples @16kHz, 24s).
-/// Bounds per-chunk encoder activation memory; the ANE path uses a longer
-/// window via [`chunk_window_samples`].
 pub(crate) const CHUNK_WINDOW_SAMPLES_ORT: usize = 16000 * 24;
-/// Long-form decode window on the ANE encoder (samples @16kHz, 30s). Full chunks
-/// fill ANE bucket 3000 at ~99.97% (vs ~80% fill at 24s), recovering pad-up
-/// waste. Peak activation is free on-device; ort keeps the shorter window.
 pub(crate) const CHUNK_WINDOW_SAMPLES_ANE: usize = 16000 * 30;
 /// Nominal overlap between consecutive long-form windows (samples @16kHz, 2s),
 /// so a word straddling a seam is decoded fully in at least one chunk. The
@@ -89,11 +83,6 @@ pub(crate) const CHUNK_WINDOW_SAMPLES_ANE: usize = 16000 * 30;
 /// input is shorter than the full window length.
 pub(crate) const CHUNK_OVERLAP_SAMPLES: usize = 16000 * 2;
 
-/// Select the long-form chunk window length for the active encoder backend.
-///
-/// ANE uses 30s so each full chunk nearly fills bucket 3000; every other
-/// backend keeps 24s to bound peak encoder activation memory on CPU/EP paths.
-/// Pure so the selection is unit-tested without a loaded model.
 pub(crate) fn chunk_window_samples(ane_encoder: bool) -> usize {
     if ane_encoder {
         CHUNK_WINDOW_SAMPLES_ANE
@@ -179,9 +168,7 @@ mod tests {
 
     #[test]
     fn test_chunk_window_samples_backend_aware() {
-        // ort / non-ANE: 24s keeps peak encoder activation bounded.
         assert_eq!(chunk_window_samples(false), 16000 * 24);
-        // ANE: 30s fills bucket 3000 at ~99.97%.
         assert_eq!(chunk_window_samples(true), 16000 * 30);
         assert!(chunk_window_samples(true) > chunk_window_samples(false));
     }

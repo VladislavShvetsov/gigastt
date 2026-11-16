@@ -15,49 +15,6 @@ pub(super) const HF_REPO: &str = "istupakov/gigaam-v3-onnx";
 pub(super) const PREQUANT_RELEASE_BASE: &str =
     "https://github.com/ekhodzitsky/gigastt/releases/download/models-v3-2026-10-09";
 
-/// Base URL of the pinned GitHub Release hosting the per-bucket palettized
-/// **ANE** (Core ML) encoder packages, one deterministic `.tar` per mel bucket.
-/// The release tag must match the `release-ane.yml` workflow's default tag; bump
-/// it together with [`ANE_TAR_CHECKSUMS`] when re-converting.
-#[cfg(all(feature = "net", feature = "ane"))]
-pub(super) const ANE_RELEASE_BASE: &str =
-    "https://github.com/ekhodzitsky/gigastt/releases/download/ane-v3-2026-06-24";
-
-/// Mel-frame bucket ladder for the ANE encoder packages. MUST equal the convert
-/// script's `--buckets` default (`scripts/convert_gigaam_ane.py`): the Rust side
-/// pads each clip's mel up to the smallest bucket >= its length and runs the
-/// matching fixed-window package.
-#[cfg(feature = "ane")]
-pub const ANE_BUCKETS: &[usize] = &[512, 768, 1536, 3000];
-
-/// Per-bucket SHA-256 of the deterministic `.mlpackage.tar` published by
-/// `release-ane.yml`. Each digest is simultaneously the content-identity
-/// fingerprint and the download pin for that bucket's `.tar`.
-///
-/// Pinned to the `ane-v3-2026-06-24` release (built by `release-ane.yml`). On a
-/// re-release, refill each entry from the printed `SHA256SUMS.txt` and bump
-/// [`ANE_RELEASE_BASE`]'s tag in the same change. An empty string means "not
-/// published yet" and makes `ensure_ane_packages` bail for that bucket.
-#[cfg(all(feature = "net", feature = "ane"))]
-pub(super) const ANE_TAR_CHECKSUMS: &[(usize, &str)] = &[
-    (
-        512,
-        "307739d76bebe9805d36e695db030bcf4e71b0b105670609cdcbd3cdc4d4c629",
-    ),
-    (
-        768,
-        "111bd2722c46d41c0984e246752782f05892017990f50837ee6342b0dc41b5be",
-    ),
-    (
-        1536,
-        "dabb0ee21e064a79621f047c795d81f33ef95358c43157a7d242cd9a504b2e93",
-    ),
-    (
-        3000,
-        "7499327eccb326f18014c222adce11f323fbaf3ff76dea7f7c0820f9adb834d4",
-    ),
-];
-
 /// HuggingFace repo hosting the optional RUPunct punctuation model (MIT).
 #[cfg(feature = "net")]
 pub(super) const PUNCT_HF_REPO: &str = "ekhodzitsky/rupunct-small-onnx";

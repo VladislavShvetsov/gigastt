@@ -26,8 +26,8 @@ fn test_golos_00_int8_encoder_near_author_fp32() {
         return;
     }
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let wav = root.join("../gigastt/tests/fixtures/golos_00.wav");
-    let author_path = root.join("../../benchmark/oracle/golos_00_author_encoder.f32");
+    let wav = root.join("tests/fixtures/golos/golos_00.wav");
+    let author_path = root.join("tests/fixtures/golos/golos_00_author_encoder.f32");
     let samples =
         crate::inference::audio::decode_audio_file(wav.to_str().expect("fixture path is utf-8"))
             .expect("decode golos_00");

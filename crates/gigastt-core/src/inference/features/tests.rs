@@ -166,8 +166,8 @@ fn test_sparse_compute_matches_dense_reference() {
 #[test]
 fn test_golos_00_mel_matches_author_preprocessor() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let wav = root.join("../gigastt/tests/fixtures/golos_00.wav");
-    let author_path = root.join("../../benchmark/oracle/golos_00_author_mel.f32");
+    let wav = root.join("tests/fixtures/golos/golos_00.wav");
+    let author_path = root.join("tests/fixtures/golos/golos_00_author_mel.f32");
     let samples =
         crate::inference::audio::decode_audio_file(wav.to_str().expect("fixture path is utf-8"))
             .expect("decode golos_00");
@@ -283,8 +283,8 @@ fn allocating_reference(mel: &MelSpectrogram, samples: &[f32], output: &mut Vec<
 #[test]
 fn test_fp32_golos_00_mel_matches_author_preprocessor() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let wav = root.join("../gigastt/tests/fixtures/golos_00.wav");
-    let author_path = root.join("../../benchmark/oracle/golos_00_author_mel.f32");
+    let wav = root.join("tests/fixtures/golos/golos_00.wav");
+    let author_path = root.join("tests/fixtures/golos/golos_00_author_mel.f32");
     let samples =
         crate::inference::audio::decode_audio_file(wav.to_str().expect("fixture path is utf-8"))
             .expect("decode golos_00");

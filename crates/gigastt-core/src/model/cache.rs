@@ -13,33 +13,6 @@ use std::path::{Path, PathBuf};
 
 use super::ModelVariant;
 
-/// Version-scoped subdirectory name for the CoreML compiled-model cache:
-/// `ort-<onnxruntime-minor>` (e.g. `ort-27`).
-///
-/// The CoreML EP compiles each session graph to an `.mlmodelc` bundle under
-/// `coreml_cache/`, keyed only by a graph hash — never by the ONNX Runtime build
-/// that produced it. A bundle compiled by one ONNX Runtime is not guaranteed
-/// loadable by another; loading a stale one makes the CoreML EP fail at
-/// prediction time and silently fall back to CPU on every run. Scoping the cache
-/// under the ORT minor version means an ORT upgrade simply misses the old entries
-/// and recompiles once, which is correct and self-healing.
-pub(crate) fn coreml_cache_version_dir() -> String {
-    format!("ort-{}", ort::MINOR_VERSION)
-}
-
-/// Directory the CoreML EP writes its compiled cache into for a model living in
-/// `model_dir`: `model_dir/coreml_cache/ort-<minor>/`. Single source of truth for
-/// both the write path (the `ort` runtime factory) and the GC keep-name
-/// ([`prune_coreml_cache`]). Only the `coreml` build writes the cache, so the
-/// path builder is compiled there; the GC keep-name uses
-/// [`coreml_cache_version_dir`] directly and stays available on every build.
-#[cfg(feature = "coreml")]
-pub(crate) fn coreml_cache_dir(model_dir: &Path) -> PathBuf {
-    model_dir
-        .join("coreml_cache")
-        .join(coreml_cache_version_dir())
-}
-
 /// Legacy basename used before content-addressed caching. Kept for source
 /// compatibility; new runtime loads never read or write this filename.
 pub fn optimized_cache_basename(encoder_path: &Path) -> Option<String> {
@@ -102,20 +75,6 @@ pub struct OptimizedCachePruneReport {
     /// Paths removed (or that would be removed under `dry_run`).
     pub removed: Vec<PathBuf>,
     /// Sum of sizes of `removed` entries.
-    pub freed_bytes: u64,
-    pub dry_run: bool,
-}
-
-/// Result of pruning stale CoreML compiled-model caches under
-/// `model_dir/coreml_cache/`.
-#[derive(Debug, Default, Clone)]
-pub struct CoremlCachePruneReport {
-    /// Current-ORT-version cache dir retained, if it exists on disk.
-    pub kept: Option<PathBuf>,
-    /// Stale cache dirs removed (or that would be under `dry_run`): sibling
-    /// `ort-*` version dirs and legacy pre-versioning hash dirs.
-    pub removed: Vec<PathBuf>,
-    /// Sum of sizes of all files under `removed`.
     pub freed_bytes: u64,
     pub dry_run: bool,
 }
@@ -236,86 +195,6 @@ pub fn prune_optimized_cache_dir(
         );
     }
     Ok(report)
-}
-
-/// Remove CoreML compiled-model caches produced by a different ONNX Runtime
-/// build under `model_dir/coreml_cache/`.
-///
-/// Keeps only the current version dir (`ort-<minor>/`, see
-/// `coreml_cache_dir`); removes every other subdirectory — sibling `ort-*`
-/// dirs from other ORT versions and legacy hash dirs written directly under
-/// `coreml_cache/` before the cache was version-scoped. Stray files are left
-/// alone (mirrors [`prune_optimized_cache`]). Not feature-gated: a CPU build may
-/// still need to reclaim a `coreml_cache/` left behind by an earlier CoreML
-/// build.
-///
-/// With `dry_run`, reports what would be deleted without removing anything.
-pub fn prune_coreml_cache(model_dir: &Path, dry_run: bool) -> Result<CoremlCachePruneReport> {
-    let mut report = CoremlCachePruneReport {
-        dry_run,
-        ..Default::default()
-    };
-    let cache_root = model_dir.join("coreml_cache");
-    if !cache_root.is_dir() {
-        return Ok(report);
-    }
-
-    let keep_name = coreml_cache_version_dir();
-    for entry in std::fs::read_dir(&cache_root)
-        .with_context(|| format!("failed to read coreml_cache at {}", cache_root.display()))?
-    {
-        let entry = entry.context("failed to read coreml_cache entry")?;
-        let path = entry.path();
-        // Only compiled-model cache subdirectories are ours to manage.
-        if !path.is_dir() {
-            continue;
-        }
-        if entry.file_name().to_string_lossy() == keep_name {
-            report.kept = Some(path);
-            continue;
-        }
-        let size = dir_size_bytes(&path);
-        if !dry_run {
-            std::fs::remove_dir_all(&path).with_context(|| {
-                format!("failed to remove stale coreml cache {}", path.display())
-            })?;
-        }
-        report.removed.push(path);
-        report.freed_bytes = report.freed_bytes.saturating_add(size);
-    }
-
-    if !report.removed.is_empty() {
-        tracing::info!(
-            dry_run,
-            kept = report.kept.is_some(),
-            removed = report.removed.len(),
-            freed_mib = report.freed_bytes / (1024 * 1024),
-            "coreml_cache prune finished"
-        );
-    }
-    Ok(report)
-}
-
-/// Recursively sum the sizes of regular files under `path`. Best-effort:
-/// unreadable entries contribute zero rather than aborting the walk.
-fn dir_size_bytes(path: &Path) -> u64 {
-    let mut total = 0u64;
-    let mut stack = vec![path.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in rd.flatten() {
-            match entry.file_type() {
-                Ok(ft) if ft.is_dir() => stack.push(entry.path()),
-                Ok(ft) if ft.is_file() => {
-                    total = total.saturating_add(entry.metadata().map(|m| m.len()).unwrap_or(0));
-                }
-                _ => {}
-            }
-        }
-    }
-    total
 }
 
 /// Hardlink exact duplicate files under `model_dir` (content SHA-256).

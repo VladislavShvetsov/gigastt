@@ -18,18 +18,14 @@ mod manifest;
 mod progress;
 mod variant;
 
-#[cfg(feature = "coreml")]
-pub(crate) use cache::coreml_cache_dir;
 pub use cache::{
-    CoremlCachePruneReport, DedupeReport, OptimizedCachePruneReport, dedupe_model_dir,
-    optimized_cache_basename, prune_coreml_cache, prune_optimized_cache, prune_optimized_cache_dir,
+    DedupeReport, OptimizedCachePruneReport, dedupe_model_dir, optimized_cache_basename,
+    prune_optimized_cache, prune_optimized_cache_dir,
 };
 pub(crate) use cache::{optimized_content_basename, optimized_source_hash};
 pub(crate) use manifest::ConfiguredManifest;
 pub use manifest::{MANIFEST_FILE, ManifestFiles, ModelManifest, ModelPrecision, ResolvedEncoder};
 
-#[cfg(all(feature = "net", feature = "ane"))]
-pub use download::ensure_ane_packages;
 #[cfg(all(feature = "net", feature = "diarization"))]
 pub use download::ensure_speaker_model;
 pub(crate) use download::verify_pinned_checksum;
@@ -37,10 +33,7 @@ pub use download::{
     VariantAction, default_model_dir, default_punct_model_dir, default_vad_model_dir,
     is_model_present, is_prequantized_present, is_usable_present, resolve_variant,
 };
-#[cfg(feature = "ane")]
-pub use download::{
-    ane_package_complete, ane_package_dir_name, default_ane_model_dir, is_ane_present,
-};
+
 #[cfg(feature = "net")]
 pub use download::{
     ensure_fp32_model_variant, ensure_model, ensure_model_variant,
@@ -54,8 +47,6 @@ pub use progress::{
     set_progress_mode,
 };
 
-#[cfg(feature = "ane")]
-pub use variant::ANE_BUCKETS;
 pub use variant::ModelVariant;
 #[cfg(feature = "diarization")]
 pub use variant::SPEAKER_MODEL_FILE;

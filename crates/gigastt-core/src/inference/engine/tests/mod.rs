@@ -8,7 +8,7 @@ pub(super) fn word(text: &str, start: f64, end: f64) -> WordInfo {
 }
 
 mod author_oracle;
-mod backends;
+
 mod cancellation;
 mod commit_policy;
 mod finalization;

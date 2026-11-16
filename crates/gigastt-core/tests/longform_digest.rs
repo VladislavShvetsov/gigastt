@@ -42,10 +42,7 @@ use gigastt_core::inference::audio::{decode_audio_file, encode_wav_pcm16};
 use gigastt_core::inference::{TranscribeResult, WordInfo};
 use gigastt_core::model::default_model_dir;
 
-const FIXTURE_DIR: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../gigastt/tests/fixtures/golos_"
-);
+const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/golos/golos_");
 
 /// Clips digested on their own. Each is a few seconds, so they pin the
 /// single-pass branch.

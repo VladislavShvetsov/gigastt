@@ -244,13 +244,7 @@ impl Engine {
             0.0
         };
         let encoder_label = if self.int8 { "int8" } else { "fp32" };
-        let backend_label = if cfg!(feature = "candle") {
-            "candle"
-        } else if cfg!(feature = "ane") {
-            "ane"
-        } else if cfg!(feature = "coreml") {
-            "coreml"
-        } else if cfg!(feature = "cuda") {
+        let backend_label = if cfg!(feature = "cuda") {
             "cuda"
         } else {
             "cpu"

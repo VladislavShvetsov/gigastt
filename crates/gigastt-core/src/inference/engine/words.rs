@@ -239,28 +239,6 @@ impl Engine {
         Ok(words)
     }
 
-    /// Long-form decode: pull overlapping windows from `windows`, encode and
-    /// decode each independently with a fresh [`DecoderState`], offset each
-    /// chunk's word timestamps by the chunk's absolute start, then stitch the
-    /// per-chunk word lists with overlap de-dup via [`stitch_chunk_words`] at
-    /// the midpoint of each pair's actual overlap (the last window absorbs a
-    /// short remainder or is anchored to the end of the input, so it may
-    /// overlap its predecessor by more than the nominal overlap).
-    ///
-    /// Peak encoder activation memory is bounded by the source's window length
-    /// (24s ort / 30s ANE, see [`super::windows::chunk_window_samples`]) rather than the full
-    /// file length. Window starts are aligned to encoder frame boundaries
-    /// (multiples of `HOP_LENGTH * ENCODER_SUBSAMPLING`) so the per-chunk frame
-    /// offset is exact, matching the streaming path's math.
-    ///
-    /// Takes the PCM as a [`PcmWindows`] source rather than a `&[f32]`, so the
-    /// loop makes no assumption that the whole file is in memory.
-    ///
-    /// When [`Engine::file_window_concurrency`] is `> 1` and the clip has at
-    /// least two windows, idle extra triplets are `try_checkout_n`'d from the
-    /// batch pool (never waited on) so independent windows can encode in
-    /// parallel. A closed pool cancels rather than serial-decoding the rest.
-    /// Short files and a saturated pool stay on the serial loop.
     pub(crate) fn decode_words_streaming(
         &self,
         windows: &mut dyn PcmWindows,

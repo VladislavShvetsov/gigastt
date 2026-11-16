@@ -1,10 +1,6 @@
 //! `impl Engine` methods — split out of the former god-file.
 use super::*;
 impl Engine {
-    /// Run encoder + decode. `low_latency` selects the streaming encoder path
-    /// ([`RuntimeSession::run_low_latency`]) so ANE can pad underfilled short
-    /// windows; file mode keeps the calibrated 0.5 fill floor. `biaser` is the
-    /// effective per-call hotword biaser (boot, request override, or off).
     #[allow(clippy::too_many_arguments)] // encoder/decode call site; bundle later if it grows again
     pub(crate) fn run_inference(
         &self,

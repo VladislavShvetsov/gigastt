@@ -300,9 +300,8 @@ pub async fn ensure_model_variant(
 /// disk, else default `Rnnt`) exists in `model_dir`, fetching from HuggingFace
 /// when missing.
 ///
-/// **Packaging / quantize source only** — the product runtime never loads FP32.
-/// Prefer [`ensure_model_variant`] / [`ensure_prequantized_model_variant`] for
-/// inference. Does not quantize; callers run [`crate::quantize`] separately.
+/// Use FP32 through an explicit model-pack manifest (see the preparation script).
+/// This function downloads source files without quantizing them.
 #[cfg(feature = "net")]
 pub async fn ensure_fp32_model_variant(
     requested: Option<ModelVariant>,
@@ -435,13 +434,6 @@ pub(super) fn partial_path(final_path: &Path) -> std::path::PathBuf {
 pub(super) mod fetch;
 #[cfg(feature = "net")]
 use fetch::{download_file, stream_to_partial_then_finalize};
-
-#[cfg(feature = "ane")]
-pub(super) mod ane;
-#[cfg(all(feature = "net", feature = "ane"))]
-pub use ane::ensure_ane_packages;
-#[cfg(feature = "ane")]
-pub use ane::{ane_package_complete, ane_package_dir_name, default_ane_model_dir, is_ane_present};
 
 #[cfg(feature = "net")]
 mod sidecars;

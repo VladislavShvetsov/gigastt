@@ -141,7 +141,7 @@ fn benchmark_sidecar_contention() {
     assert!(!speaker || engine.has_speaker_encoder());
     let load_ns = load_start.elapsed().as_nanos();
     let after_load_rss = rss_kib();
-    let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gigastt/tests/fixtures");
+    let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golos");
     let clips: Vec<_> = (0..3)
         .map(|i| {
             decode_audio_file(

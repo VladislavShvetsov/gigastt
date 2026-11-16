@@ -105,7 +105,7 @@ fn streaming_transcript_matches_batch() {
     let model_dir = default_model_dir();
     let fixture = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../gigastt/tests/fixtures/golos_00.wav"
+        "/tests/fixtures/golos/golos_00.wav"
     );
 
     let engine = Engine::load(&model_dir).expect("load engine");
@@ -173,7 +173,7 @@ fn streaming_long_audio_slides_window() {
     let model_dir = default_model_dir();
     let fixture = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../gigastt/tests/fixtures/golos_00.wav"
+        "/tests/fixtures/golos/golos_00.wav"
     );
 
     let engine = Engine::load(&model_dir).expect("load engine");
@@ -232,7 +232,7 @@ fn streaming_word_timestamps_not_inflated() {
     let model_dir = default_model_dir();
     let fixture = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../gigastt/tests/fixtures/golos_00.wav"
+        "/tests/fixtures/golos/golos_00.wav"
     );
 
     let engine = Engine::load(&model_dir).expect("load engine");
@@ -310,7 +310,7 @@ fn streaming_wer_tracks_file_on_labelled_fixtures() {
     let model_dir = default_model_dir();
     let manifest_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../gigastt/tests/fixtures/manifest.json"
+        "/tests/fixtures/golos/manifest.json"
     );
     let manifest: Vec<serde_json::Value> =
         serde_json::from_str(&std::fs::read_to_string(manifest_path).expect("read manifest"))
@@ -337,7 +337,7 @@ fn streaming_wer_tracks_file_on_labelled_fixtures() {
         let filename = entry["filename"].as_str().expect("manifest filename");
         let reference = entry["reference"].as_str().expect("manifest reference");
         let fixture = format!(
-            "{}/../gigastt/tests/fixtures/{filename}",
+            "{}/tests/fixtures/golos/{filename}",
             env!("CARGO_MANIFEST_DIR")
         );
 

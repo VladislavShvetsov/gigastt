@@ -1,40 +1,22 @@
 [workspace]
-members = ["crates/gigastt-core", "crates/gigastt-ffi", "crates/gigastt-uniffi", "crates/gigastt-node", "crates/gigastt", "crates/gigastt-quantize"]
-default-members = ["crates/gigastt"]
+members = ["crates/gigastt-core", "crates/gigastt-quantize"]
+default-members = ["crates/gigastt-core"]
 resolver = "3"
-exclude = ["vendor/candle-core-0.11.0", "vendor/askama_derive-0.16.0"]
 
 [workspace.package]
 version = "2.22.0"
 edition = "2024"
 rust-version = "1.94"
 license = "MIT"
-repository = "https://github.com/ekhodzitsky/gigastt"
+repository = "https://github.com/VladislavShvetsov/gigastt"
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
 
-# Wheel-build profile for the UniFFI Python bindings. Identical to `release`
-# except symbols are NOT stripped: UniFFI's library-mode bindgen (uniffi >= 0.29)
-# locates the interface metadata via exported symbols, and GNU `strip` removes
-# them on ELF/Linux — producing "No UniFFI metadata found" during the maturin
-# wheel build (macOS/Windows keep the symbols even when stripped). Keeping the
-# server release binaries stripped, the wheels use this profile via
-# `maturin --profile wheel` (see .github/workflows/python-wheels.yml).
-[profile.wheel]
-inherits = "release"
-strip = false
-
-# Hashing full model files is part of startup, including debug/test builds.
-# Keep only these hot dependencies optimized; downstream workspaces own profiles.
 [profile.dev.package.sha2]
 opt-level = 3
 
 [profile.dev.package.memchr]
 opt-level = 3
-
-[patch.crates-io]
-candle-core = { path = "vendor/candle-core-0.11.0" }
-askama_derive = { path = "vendor/askama_derive-0.16.0" }

@@ -53,14 +53,6 @@ impl Engine {
         Self::load_with_pools_threads(model_dir, pool_size, min_size, batch_pool_size, 1)
     }
 
-    /// Like [`Engine::load_with_pools`], but with a configurable encoder
-    /// intra-op thread count for the CPU EP. `encoder_intra_threads == 1` (the
-    /// default everywhere else) builds sessions identical to the prior
-    /// behaviour. Values `> 1` give the dominant encoder more intra-op
-    /// parallelism on weak CPUs / long single-file jobs; the count is clamped
-    /// against the logical CPU count so `pool_size * threads` can't oversubscribe
-    /// the machine (see `Engine::clamp_encoder_intra_threads`). Ignored by the
-    /// CoreML / CUDA builds (the accelerator owns scheduling there).
     pub fn load_with_pools_threads(
         model_dir: &str,
         pool_size: usize,
@@ -132,10 +124,6 @@ impl Engine {
         )
     }
 
-    /// Like [`Engine::load_with_pools_threads_variant_cache`], with an explicit
-    /// execution provider. `Auto` may fall back to CPU. An exact provider fails
-    /// the load when it is not compiled in, or when a CoreML warmup would
-    /// otherwise rebuild the pool on CPU.
     #[allow(clippy::too_many_arguments)]
     pub fn load_with_execution_provider(
         model_dir: &str,
@@ -289,13 +277,8 @@ impl Engine {
         }
 
         tracing::info!("Detected model variant: {variant:?}");
-        // The candle backend loads FP32 `candle/*.safetensors` and ignores the
-        // INT8 ONNX encoder, so report no INT8 there and gate out the INT8 / ONNX
-        // / CPU-EP logs below (which are wrong for candle), emitting an accurate
-        // candle line instead. The default (ort) logging is unchanged.
-        let is_candle = execution_provider == "candle";
-        let is_int8 = !is_candle && files.using_int8;
-        if !is_candle {
+        let is_int8 = files.using_int8;
+        {
             if files.using_int8 {
                 tracing::info!("Using INT8 quantized encoder");
             } else {
@@ -307,46 +290,15 @@ impl Engine {
             );
         }
 
-        if is_candle {
-            tracing::info!(
-                "Loading Candle models from {} (pool_size={pool_size})...",
-                model_dir.display()
-            );
-        }
-        #[cfg(feature = "coreml")]
-        tracing::info!("Using CoreML execution provider (Neural Engine + CPU)");
         #[cfg(feature = "cuda")]
         tracing::info!("Using CUDA execution provider (falls back to CPU if unavailable)");
-        #[cfg(not(any(feature = "coreml", feature = "cuda", feature = "candle")))]
+        #[cfg(not(feature = "cuda"))]
         tracing::info!("Using CPU execution provider");
 
-        // CoreML can reject a model at load time. `auto` rebuilds on CPU.
-        // An exact `coreml` request fails instead of changing device.
-        #[cfg(feature = "coreml")]
-        let (triplets, fell_back) = match load_triplets_runtime(
-            &*runtime, &files, variant, pool_size, min_size,
-        )
-        .map_err(model_load)
-        {
-            Ok(triplets) => (triplets, false),
-            Err(load_err) if allow_cpu_fallback => {
-                tracing::warn!(
-                    "CoreML EP failed to load sessions ({load_err:#}); falling back to CPU execution provider"
-                );
-                let cpu_factory = factory.cpu_fallback();
-                let runtime = cpu_factory.create(encoder_intra_threads)?;
-                let triplets =
-                    load_triplets_runtime(&*runtime, &files, variant, pool_size, min_size)
-                        .map_err(model_load)?;
-                (triplets, true)
-            }
-            Err(load_err) => return Err(load_err),
-        };
-        #[cfg(not(feature = "coreml"))]
         let fell_back = false;
-        #[cfg(not(feature = "coreml"))]
+
         let _ = allow_cpu_fallback;
-        #[cfg(not(feature = "coreml"))]
+
         let triplets = load_triplets_runtime(&*runtime, &files, variant, pool_size, min_size)
             .map_err(model_load)?;
 
@@ -362,8 +314,6 @@ impl Engine {
         #[cfg(feature = "diarization")]
         let speaker_encoder = diarization::probe_speaker_encoder(model_dir);
 
-        // Detect ANE from the loaded encoder session (not compile-time alone) so
-        // non-rnnt heads / injected factories keep the ort chunk window.
         let ane_encoder = triplets.first().is_some_and(|t| t.encoder.is_ane_encoder());
         let (pool, batch_pool) = Self::split_triplets(triplets, batch_pool_size);
         let engine = Self::from_loaded_parts(
@@ -377,37 +327,6 @@ impl Engine {
             #[cfg(feature = "diarization")]
             speaker_encoder,
         );
-
-        // CoreML compiles its graph partitions lazily, so sessions that loaded
-        // fine can still fail at the first `Run()`. Probe one triplet now; if the
-        // probe fails, rebuild the pool on the CPU EP.
-        #[cfg(feature = "coreml")]
-        let engine = if allow_cpu_fallback {
-            sizing::probe_or_rebuild(
-                engine,
-                |e: &Self| e.warmup_one().map_err(anyhow::Error::from),
-                |mut e, probe_err| {
-                    tracing::warn!(
-                        "CoreML EP failed at runtime ({probe_err:#}); falling back to CPU execution provider"
-                    );
-                    let cpu_factory = factory.cpu_fallback();
-                    let runtime = cpu_factory
-                        .create(encoder_intra_threads)
-                        .map_err(|e| anyhow::anyhow!(e))?;
-                    let triplets =
-                        load_triplets_runtime(&*runtime, &files, variant, pool_size, min_size)?;
-                    let (pool, batch_pool) = Self::split_triplets(triplets, batch_pool_size);
-                    e.pool = pool;
-                    e.batch_pool = batch_pool;
-                    e.execution_provider = "cpu".to_string();
-                    Ok(e)
-                },
-            )
-            .map_err(model_load)?
-        } else {
-            engine.warmup_one()?;
-            engine
-        };
 
         tracing::info!(
             execution_provider = engine.execution_provider(),
@@ -459,13 +378,6 @@ impl Engine {
         sizing::clamp_encoder_intra_threads(pool_size, requested, logical_cpus)
     }
 
-    /// Run one ~1 s silent inference on a single pooled session triplet.
-    ///
-    /// Exercises the full mel + encoder + RNN-T decode pipeline, forcing
-    /// lazy EP work (CoreML partition compilation, first-run allocations) to
-    /// happen now instead of on the first real request — and doubling as a
-    /// runtime self-check for EPs that can fail at prediction time even
-    /// though their sessions loaded fine (issue #42).
     pub(crate) fn warmup_one(&self) -> Result<(), GigasttError> {
         self.warmup_one_on(&self.pool)
     }
@@ -482,18 +394,6 @@ impl Engine {
         Ok(())
     }
 
-    /// Warm up every pooled session triplet with a ~1 s silent inference
-    /// so the first real request doesn't pay the EP compile /
-    /// first-allocation cost.
-    ///
-    /// Sequential checkouts visit each pooled triplet exactly once because
-    /// check-in returns items to the back of the FIFO queue.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`GigasttError::Inference`] if a warmup inference fails — with
-    /// the `coreml` feature this is unexpected, because [`Engine::load`]
-    /// already probed the pool and fell back to the CPU EP if needed.
     pub fn warmup(&self) -> Result<(), GigasttError> {
         for _ in 0..self.pool.total() {
             self.warmup_one()?;

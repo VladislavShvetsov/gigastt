@@ -1,20 +1,3 @@
-#[cfg(all(
-    feature = "candle",
-    any(feature = "coreml", feature = "cuda", feature = "nnapi")
-))]
-compile_error!("feature `candle` is mutually exclusive with `coreml`/`cuda`/`nnapi`");
-
-#[cfg(all(
-    feature = "ane",
-    any(
-        feature = "coreml",
-        feature = "cuda",
-        feature = "nnapi",
-        feature = "candle"
-    )
-))]
-compile_error!("feature `ane` is mutually exclusive with `coreml`/`cuda`/`nnapi`/`candle`");
-
 pub mod error;
 pub mod export;
 pub mod inference;
@@ -79,13 +62,8 @@ pub use runtime::cpu_factory;
 #[cfg(any(test, feature = "__internals"))]
 pub mod test_support;
 
-/// Runtime abstraction surface needed to drive backends directly (e.g. parity
-/// tests that construct and compare the ort and candle encoder sessions).
 pub mod runtime_api {
-    #[cfg(all(feature = "ane", target_os = "macos"))]
-    pub use crate::runtime::ane_factory;
-    #[cfg(feature = "candle")]
-    pub use crate::runtime::candle_factory;
+
     pub use crate::runtime::{
         Runtime, RuntimeError, RuntimeFactory, RuntimeSession, Shape, Tensor, TensorData,
         TensorDataView, cpu_factory, production_factory,

@@ -35,7 +35,7 @@ fn vad_file_skips_silence_keeps_transcript() {
     let model_dir = default_model_dir();
     let fixture = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../gigastt/tests/fixtures/golos_00.wav"
+        "/tests/fixtures/golos/golos_00.wav"
     );
 
     // Reference: decode the whole clip (no VAD).

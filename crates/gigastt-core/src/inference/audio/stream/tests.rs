@@ -58,7 +58,6 @@ fn test_window_spec_stride_is_frame_aligned() {
     assert_eq!(spec.stride() % FRAME_SAMPLES, 0);
     // 2 s overlap is already frame-aligned, so it survives the alignment.
     assert_eq!(spec.overlap(), 32_000);
-    // ANE geometry: 30 s window, same 2 s overlap.
     let ane = WindowSpec::new(16000 * 30, 16000 * 30, 16000 * 2);
     assert_eq!(ane.stride(), 448_000);
     assert_eq!(ane.stride() % FRAME_SAMPLES, 0);

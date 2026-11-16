@@ -230,63 +230,6 @@ fn test_prune_optimized_cache_dir_prunes_explicit_dir() {
 }
 
 #[test]
-fn test_prune_coreml_cache_keeps_current_version_drops_stale() {
-    let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path();
-    let root = dir.join("coreml_cache");
-    // Current-version dir (must survive) with a compiled bundle inside.
-    let keep = root.join(coreml_cache_version_dir());
-    write_file(
-        &keep.join("0_static_mlprogram").join("model.mil"),
-        &[1u8; 100],
-    );
-    // A sibling from a different ORT version (stale).
-    let stale_ver = root.join("ort-1");
-    write_file(&stale_ver.join("model.txt"), &[2u8; 200]);
-    // Legacy pre-versioning hash dirs written directly under coreml_cache/.
-    let legacy_a = root.join("3716630788028257604");
-    write_file(&legacy_a.join("model.txt"), &[3u8; 300]);
-    let legacy_b = root.join("9059995084551308172");
-    write_file(&legacy_b.join("weights.bin"), &[4u8; 400]);
-    // Stray file must be left alone.
-    write_file(&root.join("README"), b"keep me");
-
-    let report = prune_coreml_cache(dir, false).unwrap();
-    assert_eq!(report.kept, Some(keep.clone()));
-    assert_eq!(report.removed.len(), 3);
-    assert!(keep.exists());
-    assert!(!stale_ver.exists());
-    assert!(!legacy_a.exists());
-    assert!(!legacy_b.exists());
-    assert!(root.join("README").exists());
-    assert_eq!(report.freed_bytes, 200 + 300 + 400);
-}
-
-#[test]
-fn test_prune_coreml_cache_dry_run_does_not_delete() {
-    let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path();
-    let legacy = dir.join("coreml_cache").join("17316774604053445175");
-    write_file(&legacy.join("model.txt"), &[7u8; 512]);
-
-    let report = prune_coreml_cache(dir, true).unwrap();
-    assert!(report.dry_run);
-    assert!(report.kept.is_none());
-    assert_eq!(report.removed.len(), 1);
-    assert!(legacy.exists(), "dry_run must not delete");
-    assert_eq!(report.freed_bytes, 512);
-}
-
-#[test]
-fn test_prune_coreml_cache_absent_dir_is_noop() {
-    let tmp = tempfile::tempdir().unwrap();
-    let report = prune_coreml_cache(tmp.path(), false).unwrap();
-    assert!(report.kept.is_none());
-    assert!(report.removed.is_empty());
-    assert_eq!(report.freed_bytes, 0);
-}
-
-#[test]
 fn test_dedupe_hardlinks_exact_copies() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();

@@ -622,15 +622,6 @@ impl TranscriptAssembler {
     }
 }
 
-/// Probe a freshly-built state; on failure, rebuild it once and re-probe.
-///
-/// `probe` is a runtime self-check, `rebuild` converts the failed state into
-/// a replacement (receiving the probe error so it can log the cause). A
-/// rebuilt state that still fails the probe is a hard error — there is no
-/// second fallback level.
-///
-/// Extracted from the CoreML runtime-fallback path (issue #42) so the
-
 #[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct TranscriptSegment {

@@ -163,20 +163,25 @@ impl OrtFactory {
     }
 }
 
-static ORT_INIT: OnceLock<bool> = OnceLock::new();
+// ort 2.0.0-rc.14 requires an explicit Environment handle for every session.
+// Preserve the one-environment-per-process behavior of the original GigaSTT.
+// Store initialization errors so subsequent callers receive the same error.
+static ORT_ENV: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
 
-fn ensure_ort_initialized() {
-    let initialized_by_us = ORT_INIT.get_or_init(|| ort::init().with_name("gigastt").commit());
-    if !initialized_by_us {
-        tracing::warn!(
-            "ort environment was already configured before gigastt initialization; execution provider settings may not apply"
-        );
+pub(super) fn ort_environment() -> Result<&'static ort::environment::Environment, RuntimeError> {
+    match ORT_ENV.get_or_init(|| {
+        ort::init().with_name("gigastt").build().map_err(|e| e.to_string())
+    }) {
+        Ok(env) => Ok(env),
+        Err(message) => Err(RuntimeError::LoadFailed {
+            path: PathBuf::from("ort-environment"),
+            message: message.clone(),
+        }),
     }
 }
-
 impl RuntimeFactory for OrtFactory {
     fn create(&self, intra_threads: usize) -> Result<Box<dyn Runtime>, RuntimeError> {
-        ensure_ort_initialized();
+        ort_environment()?;
         Ok(Box::new(OrtRuntime::new(
             intra_threads,
             self.provider,

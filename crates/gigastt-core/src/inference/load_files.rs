@@ -65,17 +65,15 @@ pub(crate) struct ResolvedModelFiles {
 impl ResolvedModelFiles {
     pub(crate) fn resolve(dir: &Path, variant: ModelVariant) -> anyhow::Result<Self> {
         if let Some(m) = ModelManifest::load(dir)? {
-            anyhow::ensure!(
-                m.prefers_int8(dir),
-                "manifest resolves to a non-INT8 encoder — gigastt runs INT8 only. \
-                 Install the INT8 encoder (`gigastt download`) or fix encoder_int8 in manifest.toml."
-            );
+            // GIGASTT_FP32_MANIFEST_V1: allow FP32 in an explicit model pack.
+            let encoder = m.preferred_encoder_path(dir);
+            anyhow::ensure!(encoder.is_file(), "encoder not found: {}", encoder.display());
             return Ok(Self {
                 encoder: m.preferred_encoder_path(dir),
                 decoder: m.decoder_path(dir),
                 joint: m.joint_path(dir),
                 vocab: m.vocab_path(dir),
-                using_int8: true,
+                using_int8: m.prefers_int8(dir),
                 encoder_hash: None,
             });
         }

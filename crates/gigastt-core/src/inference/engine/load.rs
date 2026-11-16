@@ -291,7 +291,11 @@ impl Engine {
         let is_int8 = !cfg!(feature = "candle") && files.using_int8;
         if !cfg!(feature = "candle") {
             // ORT product path is INT8-only (`ResolvedModelFiles` rejects FP32).
-            tracing::info!("Using INT8 quantized encoder");
+            if files.using_int8 {
+                tracing::info!("Using INT8 quantized encoder");
+            } else {
+                tracing::info!("Using FP32 encoder");
+            }
             tracing::info!(
                 "Loading ONNX models from {} (pool_size={pool_size})...",
                 model_dir.display()

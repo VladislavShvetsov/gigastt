@@ -382,10 +382,21 @@ pub fn is_prequantized_present(variant: ModelVariant, dir: &Path) -> bool {
 /// download files are already INT8). An FP32-only install is **not** usable.
 pub fn is_usable_present(variant: ModelVariant, dir: &Path) -> bool {
     if variant.is_ctc() {
-        // CTC download set is the INT8 encoder + vocab (no separate prequant list).
         return is_model_present(variant, dir) || is_prequantized_present(variant, dir);
     }
-    is_prequantized_present(variant, dir)
+    if is_prequantized_present(variant, dir) {
+        return true;
+    }
+    // GIGASTT_FP32_PREFLIGHT_V1: only accept complete explicit FP32 packs.
+    let Ok(Some(m)) = super::ModelManifest::load(dir) else {
+        return false;
+    };
+    m.architecture == variant
+        && !m.prefers_int8(dir)
+        && m.preferred_encoder_path(dir).is_file()
+        && m.decoder_path(dir).is_some_and(|p| p.is_file())
+        && m.joint_path(dir).is_some_and(|p| p.is_file())
+        && m.vocab_path(dir).is_file()
 }
 
 /// Append `.partial` to a path; retained for tests that assert the legacy

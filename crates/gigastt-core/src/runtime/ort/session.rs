@@ -198,7 +198,7 @@ impl OrtRuntime {
         model_path: &Path,
         is_encoder: bool,
     ) -> Result<ort::session::builder::SessionBuilder, RuntimeError> {
-        let mut builder = Session::builder()
+        let mut builder = Session::builder(super::factory::ort_environment()?)
             .map_err(|e| load_failed(model_path, e))?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
             .map_err(|e| load_failed(model_path, e))?;

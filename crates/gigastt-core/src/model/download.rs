@@ -322,8 +322,8 @@ pub async fn ensure_prequantized_model_variant(
         .or_else(|| ModelVariant::detect_in_dir(dir).filter(|&v| is_usable_present(v, dir)))
         .unwrap_or_default();
 
-    if is_prequantized_present(variant, dir) {
-        tracing::info!("Using existing {variant:?} INT8 model at {model_dir}");
+    if is_usable_present(variant, dir) {
+        tracing::info!("Using existing {variant:?} model at {model_dir}");
         return Ok(variant);
     }
 
@@ -333,8 +333,8 @@ pub async fn ensure_prequantized_model_variant(
     let _lock = acquire_download_lock(dir)?;
 
     // Re-check after acquiring the lock in case another process finished.
-    if is_prequantized_present(variant, dir) {
-        tracing::info!("Pre-quantized {variant:?} model found at {model_dir} after lock");
+    if is_usable_present(variant, dir) {
+        tracing::info!("{variant:?} model found at {model_dir} after lock");
         return Ok(variant);
     }
 

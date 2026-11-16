@@ -1,0 +1,27 @@
+name: Build and check
+on:
+  push:
+    branches: [cuda-fp32-blackwell]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  cpu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler pkg-config libssl-dev
+      - name: Build CPU
+        run: bash scripts/build_variants.sh cpu
+      - name: Manifest parser and model-file tests
+        run: cargo test --locked -p gigastt-core --no-default-features model::manifest --lib
+  cuda-compile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler pkg-config libssl-dev
+      - name: Build CUDA (no GPU inference in standard runner)
+        run: bash scripts/build_variants.sh cuda

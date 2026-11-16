@@ -65,14 +65,26 @@ pub(crate) struct ResolvedModelFiles {
 impl ResolvedModelFiles {
     pub(crate) fn resolve(dir: &Path, variant: ModelVariant) -> anyhow::Result<Self> {
         if let Some(m) = ModelManifest::load(dir)? {
-            // GIGASTT_FP32_MANIFEST_V1: allow FP32 in an explicit model pack.
+            anyhow::ensure!(
+                m.architecture == variant,
+                "manifest architecture '{}' conflicts with selected model variant '{}'",
+                m.architecture.as_str(), variant.as_str()
+            );
             let encoder = m.preferred_encoder_path(dir);
+            let decoder = m.decoder_path(dir);
+            let joint = m.joint_path(dir);
+            let vocab = m.vocab_path(dir);
             anyhow::ensure!(encoder.is_file(), "encoder not found: {}", encoder.display());
+            anyhow::ensure!(vocab.is_file(), "vocab not found: {}", vocab.display());
+            if !variant.is_ctc() {
+                anyhow::ensure!(decoder.as_ref().is_some_and(|p| p.is_file()), "decoder file missing");
+                anyhow::ensure!(joint.as_ref().is_some_and(|p| p.is_file()), "joint file missing");
+            }
             return Ok(Self {
-                encoder: m.preferred_encoder_path(dir),
-                decoder: m.decoder_path(dir),
-                joint: m.joint_path(dir),
-                vocab: m.vocab_path(dir),
+                encoder,
+                decoder,
+                joint,
+                vocab,
                 using_int8: m.prefers_int8(dir),
                 encoder_hash: None,
             });

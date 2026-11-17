@@ -1,0 +1,484 @@
+//! Offline `transcribe` / `transcribe-batch` / `watch` command bodies.
+
+use anyhow::Context;
+use clap::Args;
+use gigastt::batch;
+use gigastt::boot::{
+    EngineRecipe, ItnMode, PunctuationMode, parse_itn_mode, parse_punctuation_mode,
+};
+use gigastt_core::export::{ExportFormat, RenderOpts};
+use gigastt_core::inference;
+use gigastt_core::model;
+use gigastt_core::model::ModelVariant;
+use std::str::FromStr;
+
+/// Engine / post-processing flags shared by the offline directory commands
+/// (`transcribe-batch`, `watch`). Mirrors the corresponding `transcribe` flags.
+#[derive(Args)]
+pub(crate) struct OfflineEngineArgs {
+    /// Model directory
+    #[arg(long, default_value_t = model::default_model_dir())]
+    pub(crate) model_dir: String,
+
+    /// Recognition head to use. Omit to auto-detect from the model directory.
+    /// Env: GIGASTT_MODEL_VARIANT.
+    #[arg(
+        long,
+        env = "GIGASTT_MODEL_VARIANT",
+        value_parser = crate::parse_model_variant
+    )]
+    pub(crate) model_variant: Option<ModelVariant>,
+
+    /// Punctuation + capitalization restoration: `on`, `off`, or `auto`.
+    /// Env: GIGASTT_PUNCTUATION.
+    #[arg(
+        long,
+        env = "GIGASTT_PUNCTUATION",
+        default_value = "auto",
+        value_parser = parse_punctuation_mode
+    )]
+    pub(crate) punctuation: PunctuationMode,
+
+    /// Directory holding the optional punctuation model.
+    /// Env: GIGASTT_PUNCT_MODEL_DIR.
+    #[arg(
+        long,
+        env = "GIGASTT_PUNCT_MODEL_DIR",
+        default_value_t = model::default_punct_model_dir()
+    )]
+    pub(crate) punct_model_dir: String,
+
+    /// Inverse text normalization (Russian number-words → digits):
+    /// `on`, `off`, or `auto`. Env: GIGASTT_ITN.
+    #[arg(
+        long,
+        env = "GIGASTT_ITN",
+        default_value = "auto",
+        value_parser = parse_itn_mode
+    )]
+    pub(crate) itn: ItnMode,
+
+    /// Contextual hotword biasing: path to a file of phrases to boost (one
+    /// phrase per line, optional `\t<weight>` suffix). Env: GIGASTT_HOTWORDS_FILE.
+    #[arg(long, env = "GIGASTT_HOTWORDS_FILE")]
+    pub(crate) hotwords_file: Option<String>,
+
+    /// Also bias the built-in Russian brand/acronym lexicon.
+    /// Env: GIGASTT_HOTWORDS_DEFAULT.
+    #[arg(long, env = "GIGASTT_HOTWORDS_DEFAULT", default_value_t = false)]
+    pub(crate) hotwords_default: bool,
+
+    /// Additive logit boost applied to hotword continuation tokens [default: 5.0].
+    /// Env: GIGASTT_HOTWORDS_BOOST.
+    #[arg(long, env = "GIGASTT_HOTWORDS_BOOST")]
+    pub(crate) hotwords_boost: Option<f32>,
+
+    /// Voice activity detection: skip silence before decoding. Env: GIGASTT_VAD.
+    #[arg(long, env = "GIGASTT_VAD", default_value_t = false)]
+    pub(crate) vad: bool,
+
+    /// VAD speech-probability threshold in [0,1] [default: 0.5].
+    /// Env: GIGASTT_VAD_THRESHOLD.
+    #[arg(long, env = "GIGASTT_VAD_THRESHOLD")]
+    pub(crate) vad_threshold: Option<f32>,
+
+    /// Minimum trailing silence (ms) to close a speech region [default: 500].
+    /// Env: GIGASTT_VAD_MIN_SILENCE_MS.
+    #[arg(long, env = "GIGASTT_VAD_MIN_SILENCE_MS")]
+    pub(crate) vad_min_silence_ms: Option<u32>,
+
+    /// Directory holding the Silero VAD model (`silero_vad.onnx`).
+    /// Env: GIGASTT_VAD_MODEL_DIR.
+    #[arg(long, env = "GIGASTT_VAD_MODEL_DIR", default_value_t = model::default_vad_model_dir())]
+    pub(crate) vad_model_dir: String,
+
+    /// Intra-op thread count for the encoder session on the CPU build. When
+    /// unset, defaults to the logical CPU count divided across the pool.
+    /// Do not set `1` on multi-core hosts unless debugging — it is ~3× slower
+    /// than auto. Explicit `1` is still honoured for debug passthrough.
+    /// Env: GIGASTT_ENCODER_INTRA_THREADS.
+    #[arg(long, env = "GIGASTT_ENCODER_INTRA_THREADS")]
+    pub(crate) encoder_intra_threads: Option<usize>,
+
+    /// Number of concurrent transcription workers (engine session pool).
+    /// Encoder weights are memory-mapped and shared; budget resident
+    /// footprint (~46 MB at `--pool-size 1`, ~66 MB at the default 2).
+    /// `ps` RSS is higher (~277 / ~510 MB). Pool > 1 can cost ~10–20%
+    /// single-job RTF (threads split across slots). CLI-only.
+    #[arg(long, default_value_t = 2)]
+    pub(crate) pool_size: usize,
+}
+
+/// Output / source-policy flags shared by `transcribe-batch` and `watch`.
+#[derive(Args)]
+pub(crate) struct BatchOutputArgs {
+    /// Export formats, comma-separated: txt, json, md, srt, vtt.
+    /// One `<stem>.<ext>` file is written per format. Env: GIGASTT_FORMAT.
+    #[arg(short, long, env = "GIGASTT_FORMAT", default_value = "txt,json")]
+    pub(crate) format: String,
+
+    /// Move each successfully transcribed source file into this directory
+    /// (e.g. `--move-to done/`). Mutually exclusive with `--delete-source`.
+    /// Env: GIGASTT_BATCH_MOVE_TO.
+    #[arg(long, env = "GIGASTT_BATCH_MOVE_TO", conflicts_with = "delete_source")]
+    pub(crate) move_to: Option<String>,
+
+    /// Delete each successfully transcribed source file. Failed files are
+    /// always left in place. Env: GIGASTT_BATCH_DELETE_SOURCE.
+    #[arg(long, env = "GIGASTT_BATCH_DELETE_SOURCE", default_value_t = false)]
+    pub(crate) delete_source: bool,
+
+    /// Extra attempts per file after a failure, with a short backoff
+    /// [default: 0 for transcribe-batch, 2 for watch]. Env: GIGASTT_BATCH_RETRIES.
+    #[arg(long, env = "GIGASTT_BATCH_RETRIES")]
+    pub(crate) retries: Option<u32>,
+
+    /// Maximum characters per subtitle/caption line (SRT/VTT) [default: 80]
+    #[arg(long, env = "GIGASTT_MAX_CHARS_PER_LINE")]
+    pub(crate) max_chars_per_line: Option<usize>,
+
+    /// Maximum words per subtitle/caption line (SRT/VTT) [default: 14]
+    #[arg(long, env = "GIGASTT_MAX_WORDS_PER_LINE")]
+    pub(crate) max_words_per_line: Option<usize>,
+
+    /// Include per-word timestamps in Markdown output
+    #[arg(long, env = "GIGASTT_WORD_TIMESTAMPS", default_value_t = false)]
+    pub(crate) word_timestamps: bool,
+}
+
+/// Build the synchronous transcribe closure injected into the batch / watch
+/// runners: check out a pool triplet (blocking — the runner calls it from a
+/// blocking thread) and transcribe one file.
+pub(crate) fn make_transcribe_fn(engine: std::sync::Arc<inference::Engine>) -> batch::TranscribeFn {
+    std::sync::Arc::new(move |path: std::path::PathBuf| {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("non-UTF-8 path: {}", path.display()))?;
+        let mut guard = engine
+            .pool
+            .checkout_blocking()
+            .map_err(|e| anyhow::anyhow!("session pool closed: {e}"))?;
+        Ok(engine.transcribe_file(path_str, &mut guard)?)
+    })
+}
+
+/// Cancellation token fired on SIGINT, shared by the batch / watch runners for
+/// graceful shutdown (finish in-flight files, stop scheduling new ones).
+pub(crate) fn ctrl_c_token() -> tokio_util::sync::CancellationToken {
+    let token = tokio_util::sync::CancellationToken::new();
+    let inner = token.clone();
+    tokio::spawn(async move {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => inner.cancel(),
+            Err(e) => tracing::warn!("Failed to listen for Ctrl-C: {e}"),
+        }
+    });
+    token
+}
+
+/// Build the [`batch::BatchOptions`] shared by `transcribe-batch` and `watch`
+/// from the parsed CLI flags.
+pub(crate) fn build_batch_options(
+    input_dir: &str,
+    output_dir: &str,
+    pool_size: usize,
+    retries: u32,
+    out: &BatchOutputArgs,
+) -> anyhow::Result<batch::BatchOptions> {
+    Ok(batch::BatchOptions {
+        input_dir: std::path::PathBuf::from(input_dir),
+        output_dir: std::path::PathBuf::from(output_dir),
+        formats: batch::parse_formats(&out.format).map_err(|e| anyhow::anyhow!("{e}"))?,
+        render_opts: RenderOpts {
+            max_chars_per_line: out.max_chars_per_line.unwrap_or(80),
+            max_words_per_line: out.max_words_per_line.unwrap_or(14),
+            include_word_timestamps: out.word_timestamps,
+        },
+        move_to: out.move_to.as_deref().map(std::path::PathBuf::from),
+        delete_source: out.delete_source,
+        concurrency: pool_size,
+        retries,
+    })
+}
+
+/// Offline single-file transcription (telephony / stereo / mono).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_transcribe(
+    execution_provider: gigastt_core::ExecutionProviderChoice,
+    file: String,
+    model_dir: String,
+    model_variant: Option<ModelVariant>,
+    punctuation: PunctuationMode,
+    punct_model_dir: String,
+    itn: ItnMode,
+    hotwords_file: Option<String>,
+    hotwords_default: bool,
+    hotwords_boost: Option<f32>,
+    vad: bool,
+    vad_threshold: Option<f32>,
+    vad_min_silence_ms: Option<u32>,
+    vad_model_dir: String,
+    encoder_intra_threads: Option<usize>,
+    file_window_concurrency: usize,
+    format: String,
+    output: Option<String>,
+    max_chars_per_line: Option<usize>,
+    max_words_per_line: Option<usize>,
+    word_timestamps: bool,
+    stereo_speakers: bool,
+    codec: Option<String>,
+    sample_rate: Option<u32>,
+) -> anyhow::Result<()> {
+    // Default one triplet so unset `--encoder-intra-threads` uses every
+    // logical CPU. `--file-window-concurrency N` loads N triplets so a
+    // long file can decode overlapping windows in parallel (threads split
+    // across the pool at load).
+    let file_window_concurrency = file_window_concurrency.max(1);
+    let engine = EngineRecipe::offline(
+        model_dir,
+        model_variant,
+        punctuation,
+        punct_model_dir,
+        itn,
+        hotwords_file,
+        hotwords_default,
+        hotwords_boost,
+        vad,
+        vad_threshold,
+        vad_min_silence_ms,
+        vad_model_dir,
+        encoder_intra_threads,
+        file_window_concurrency,
+    )
+    .with_file_window_concurrency(file_window_concurrency)
+    .with_execution_provider(execution_provider)
+    .load_offline_engine()
+    .await?;
+    // Same pool extras steal from (`batch_pool` when split, else `pool`).
+    let mut guard = engine.pool_for_batch().checkout().await?;
+    let result = if let Some(codec_name) = codec.as_deref() {
+        // Raw headerless telephony input: decode via the codec tables
+        // straight to mono 16 kHz f32 and hand the samples to the engine.
+        let telephony_codec =
+            inference::audio::TelephonyCodec::from_name(codec_name).ok_or_else(|| {
+                anyhow::anyhow!("unsupported codec '{codec_name}' (supported: pcmu, pcma, g722)")
+            })?;
+        // clap enforces `--sample-rate` when `--codec` is given; keep a
+        // graceful error instead of an unwrap in case that ever changes.
+        let rate =
+            sample_rate.ok_or_else(|| anyhow::anyhow!("--sample-rate is required with --codec"))?;
+        telephony_codec
+            .validate_sample_rate(rate)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let raw =
+            std::fs::read(&file).with_context(|| format!("Failed to open audio file: {file}"))?;
+        let mut samples = inference::audio::decode_telephony_raw(&raw, telephony_codec, rate)?;
+        // NOT a no-op: preserve transcript byte-identity. The former path
+        // encoded these samples into an in-memory WAV and let the engine
+        // decode it back, which snapped every value to 16-bit PCM. Passing
+        // the raw f32 straight through would change the transcript (measured:
+        // 153 token edits on a 9-minute call), so reproduce that quantization
+        // in place — clamp to [-1, 1], round via 32767, normalise via 32768,
+        // matching `encode_wav_pcm16` and the PCM decode path. Whether
+        // full-precision f32 is better requires telephony WER measurements;
+        // do not silently drop this snap.
+        inference::audio::quantize_wav_pcm16_in_place(&mut samples);
+        engine.transcribe_request(
+            inference::TranscribeRequest::new(inference::TranscribeSource::Samples(&samples)),
+            &mut guard,
+        )
+    } else if stereo_speakers {
+        let channels = inference::audio::load_audio_channels(&file)?;
+        let fallback_reason = match channels.len() {
+            0 => Some("no channels"),
+            1 => Some("mono audio"),
+            2 if inference::audio::is_dual_mono(&channels) => Some("dual-mono audio"),
+            n if n > 2 => Some("more than two channels"),
+            _ => None,
+        };
+        if let Some(reason) = fallback_reason {
+            tracing::warn!(
+                "--stereo-speakers requested but {reason} detected; falling back to mono transcription"
+            );
+            engine.transcribe_file(&file, &mut guard)
+        } else {
+            engine.transcribe_channels(&channels, &mut guard)
+        }
+    } else {
+        engine.transcribe_file(&file, &mut guard)
+    };
+    drop(guard);
+    let result = result?;
+
+    let format = ExportFormat::from_str(&format).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let opts = RenderOpts {
+        max_chars_per_line: max_chars_per_line.unwrap_or(80),
+        max_words_per_line: max_words_per_line.unwrap_or(14),
+        include_word_timestamps: word_timestamps,
+    };
+    let rendered = format.render(&result, &opts);
+
+    match output {
+        Some(path) => {
+            std::fs::write(&path, rendered).with_context(|| format!("failed to write {path}"))?;
+            tracing::info!("Wrote {} export to {path}", format);
+        }
+        None => println!("{rendered}"),
+    }
+    Ok(())
+}
+
+pub(crate) async fn run_transcribe_batch(
+    execution_provider: gigastt_core::ExecutionProviderChoice,
+    input_dir: String,
+    output_dir: String,
+    eng: OfflineEngineArgs,
+    out: BatchOutputArgs,
+) -> anyhow::Result<()> {
+    let engine = EngineRecipe::offline(
+        eng.model_dir,
+        eng.model_variant,
+        eng.punctuation,
+        eng.punct_model_dir,
+        eng.itn,
+        eng.hotwords_file,
+        eng.hotwords_default,
+        eng.hotwords_boost,
+        eng.vad,
+        eng.vad_threshold,
+        eng.vad_min_silence_ms,
+        eng.vad_model_dir,
+        eng.encoder_intra_threads,
+        eng.pool_size,
+    )
+    .with_execution_provider(execution_provider)
+    .load_offline_engine()
+    .await?;
+    let opts = build_batch_options(
+        &input_dir,
+        &output_dir,
+        eng.pool_size,
+        out.retries.unwrap_or(0),
+        &out,
+    )?;
+    let summary = batch::run_batch(
+        &opts,
+        make_transcribe_fn(std::sync::Arc::new(engine)),
+        ctrl_c_token(),
+    )
+    .await?;
+    tracing::info!(
+        processed = summary.processed,
+        failed = summary.failed,
+        skipped = summary.skipped,
+        "batch finished"
+    );
+    if summary.interrupted {
+        // Same contract as `download`: SIGINT exits 130.
+        std::process::exit(130);
+    }
+    if summary.failed > 0 {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+pub(crate) async fn run_watch(
+    execution_provider: gigastt_core::ExecutionProviderChoice,
+    input_dir: String,
+    output_dir: String,
+    eng: OfflineEngineArgs,
+    out: BatchOutputArgs,
+    poll_interval_ms: u64,
+    settle_polls: u32,
+) -> anyhow::Result<()> {
+    let engine = EngineRecipe::offline(
+        eng.model_dir,
+        eng.model_variant,
+        eng.punctuation,
+        eng.punct_model_dir,
+        eng.itn,
+        eng.hotwords_file,
+        eng.hotwords_default,
+        eng.hotwords_boost,
+        eng.vad,
+        eng.vad_threshold,
+        eng.vad_min_silence_ms,
+        eng.vad_model_dir,
+        eng.encoder_intra_threads,
+        eng.pool_size,
+    )
+    .with_execution_provider(execution_provider)
+    .load_offline_engine()
+    .await?;
+    let opts = batch::WatchOptions {
+        batch: build_batch_options(
+            &input_dir,
+            &output_dir,
+            eng.pool_size,
+            out.retries.unwrap_or(2),
+            &out,
+        )?,
+        poll_interval: std::time::Duration::from_millis(poll_interval_ms),
+        settle_polls,
+    };
+    let summary = batch::run_watch(
+        &opts,
+        make_transcribe_fn(std::sync::Arc::new(engine)),
+        ctrl_c_token(),
+    )
+    .await?;
+    tracing::info!(
+        processed = summary.processed,
+        failed = summary.failed,
+        "watch stopped"
+    );
+    if summary.failed > 0 {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_batch_options_defaults() {
+        let out = BatchOutputArgs {
+            format: "txt,json".into(),
+            move_to: None,
+            delete_source: false,
+            retries: None,
+            max_chars_per_line: None,
+            max_words_per_line: None,
+            word_timestamps: false,
+        };
+        let opts = build_batch_options("/in", "/out", 2, 3, &out).expect("opts");
+        assert_eq!(opts.input_dir, std::path::PathBuf::from("/in"));
+        assert_eq!(opts.output_dir, std::path::PathBuf::from("/out"));
+        assert_eq!(opts.concurrency, 2);
+        assert_eq!(opts.retries, 3);
+        assert_eq!(opts.render_opts.max_chars_per_line, 80);
+        assert_eq!(opts.render_opts.max_words_per_line, 14);
+        assert!(!opts.delete_source);
+    }
+
+    #[test]
+    fn test_make_transcribe_fn_reads_wav() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        gigastt_core::test_support::write_rnnt_layout(tmp.path()).expect("layout");
+        let engine = std::sync::Arc::new(
+            gigastt_core::test_support::load_rnnt_engine(tmp.path(), 1).expect("engine"),
+        );
+        let wav = tmp.path().join("clip.wav");
+        std::fs::write(
+            &wav,
+            gigastt_core::test_support::pcm16_wav(&[0i16; 320], 16_000),
+        )
+        .expect("wav");
+        let f = make_transcribe_fn(engine);
+        let result = f(wav).expect("transcribe");
+        assert!(result.duration_s > 0.0);
+    }
+}

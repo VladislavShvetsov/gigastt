@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/gigastt-core", "crates/gigastt-quantize"]
-default-members = ["crates/gigastt-core"]
+members = ["crates/gigastt-core", "crates/gigastt-quantize", "crates/gigastt"]
+default-members = ["crates/gigastt"]
 resolver = "3"
 
 [workspace.package]
